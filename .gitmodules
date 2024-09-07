@@ -1,0 +1,3 @@
+[submodule "6/assembler"]
+	path = 6/assembler
+	url = https://github.com/jsyph/Nand2Tetris-Hack-Assembler.git
