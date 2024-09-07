@@ -1,0 +1,137 @@
+  // This file is part of www.nand2tetris.org
+  // and the book "The Elements of Computing Systems"
+  // by Nisan and Schocken, MIT Press.
+  // File name: projects/5/CPU.hdl
+  /**
+ * The Hack Central Processing unit (CPU).
+ * Parses the binary code in the instruction input and executes it according to the
+ * Hack machine language specification. In the case of a C-instruction, computes the
+ * function specified by the instruction. If the instruction specifies to read a memory
+ * value, the inM input is expected to contain this value. If the instruction specifies
+ * to write a value to the memory, sets the outM output to this value, sets the addressM
+ * output to the target address, and asserts the writeM output (when writeM = 0, any
+ * value may appear in outM).
+ * If the reset input is 0, computes the address of the next instruction and sets the
+ * pc output to that value. If the reset input is 1, sets pc to 0.
+ * Note: The outM and writeM outputs are combinational: they are affected by the
+ * instruction's execution during the current cycle. The addressM and pc outputs are
+ * clocked: although they are affected by the instruction's execution, they commit to
+ * their new values only in the next cycle.
+ */
+
+CHIP CPU {
+  IN  inM[16],            // M value input  (M = contents of RAM[A])
+      instruction[16],    // Instruction for execution
+      reset;              // Signals whether to re-start the current
+                          // program (reset==1) or continue executing
+                          // the current program (reset==0).
+
+  OUT outM[16],        // M value output
+      writeM,          // Write to M? 
+      addressM[15],    // Address in data memory (of M)
+      pc[15];          // address of next instruction
+
+  PARTS: 
+  // Hack CPU Implementation as specified in unit slide
+
+  // instructionMuxSel = 1 when op code = 0
+  Mux16(
+    a   = aluOut,
+    b   = instruction,
+    sel = notOpCode,
+    out = aRegIn,
+  );
+
+  // ARegLoad
+  // op code = 0
+  // or d1 = 1
+  Or(a=notOpCode, b=instruction[5], out=aRegLoad);
+  ARegister(
+    in         = aRegIn,
+    load       = aRegLoad,
+    out        = aRegOut,
+    out[0..14] = addressM,
+  );
+
+  // inMMuxSel = a iff op code = 1
+  And(a=instruction[15], b=instruction[12], out=inMMuxSel);
+  Mux16(
+    a   = aRegOut,
+    b   = inM,
+    sel = inMMuxSel,
+    out = AMUXM,
+  );
+
+  // ========== PROGRAM COUNTER ==========
+  Not(in=zr, out=notZr);
+  Not(in=ng, out=notNg);
+
+  // JGT: zr = 0 and ng = 0 -> !zr AND !ng
+  And(a=notZr, b=notNg, out=notZrAndNotNg);
+  // JEQ: zr = 1 and ng = 0 -> zr
+  // JGE: !ng               -> !ng
+  // JLT: ng = 1            -> ng
+  // JNE: !zr               -> !zr
+  // JLE: ng = 1 or zr = 1  -> ng OR zr
+  Or(a=ng, b=zr, out=ngOrZr);
+  // JMP                    -> -
+
+  Mux8Way16(
+    a[0]   = false,               // null
+    b[0]   = notZrAndNotNg,       // JGT 
+    c[0]   = zr,                  // JEQ
+    d[0]   = notNg,               // JGE
+    e[0]   = ng,                  // JLT
+    f[0]   = notZr,               // JNE
+    g[0]   = ngOrZr,              // JLE
+    h[0]   = true,                // JMP
+    sel    = instruction[0..2],
+    out[0] = pcLoad0,
+  );
+  // check if opcode is 1
+  And(a=instruction[15], b=pcLoad0, out=pcLoad);
+  // increment counter if pcLoad is 0
+  Not(in=pcLoad, out=pcInc);
+  PC(
+    in         = aRegOut,
+    load       = pcLoad,
+    inc        = pcInc,
+    reset      = reset,
+    out[0..14] = pc,
+  );
+
+  // dRegLoad
+  // d2 = 1
+  And(a=instruction[15], b=instruction[4], out=dRegLoad);
+  DRegister(
+    in   = aluOut,
+    load = dRegLoad,
+    out  = D,
+  );
+
+  And(a=instruction[15], b=instruction[11], out=zx);
+  And(a=instruction[15], b=instruction[10], out=nx);
+  And(a=instruction[15], b=instruction[9],  out=zy);
+  And(a=instruction[15], b=instruction[8],  out=ny);
+  And(a=instruction[15], b=instruction[7],  out=f );
+  And(a=instruction[15], b=instruction[6],  out=no);
+  ALU(
+    x  = D,
+    y  = AMUXM,
+    zx = zx,
+    nx = nx,
+    zy = zy,
+    ny = ny,
+    f  = f,
+    no = no,
+
+    out = aluOut,
+    out = outM,
+    zr  = zr,
+    ng  = ng,
+  );
+
+  // ===== Control Center =====
+  Not(in=instruction[15], out=notOpCode);
+  And(a=instruction[3], b=instruction[15], out=writeM);
+}
